@@ -34,7 +34,7 @@ class DuellingDQLearningAgent:
         self,
         alpha: float,
         gamma: float,
-        epsilon_decay: float,
+        epsilon_bounds: Tuple[float],
         state_space,
         action_space,
         update_frequency: int,
@@ -45,7 +45,7 @@ class DuellingDQLearningAgent:
         self.alpha = alpha  # learning rate.
         self.gamma = gamma  # discount rate.
         self.epsilon = 1.0  # exploration exploitation rate.
-        self.epsilon_decay = epsilon_decay
+        self.epsilon_bounds = epsilon_bounds
         self.action_space = action_space
         self.state_space = state_space
         self.checkpoint_dir = checkpoint_dir
@@ -56,7 +56,6 @@ class DuellingDQLearningAgent:
         self.steps = 0
 
         self.network = DuellingQNetwork(
-            input_shape=(None, *self.state_space.shape),
             num_actions=action_space.n,
             num_hidden=128,
         )
@@ -85,7 +84,7 @@ class DuellingDQLearningAgent:
         data["alpha"] = self.__dict__["alpha"]
         data["gamma"] = self.__dict__["gamma"]
         data["epsilon"] = self.__dict__["epsilon"]
-        data["epsilon_decay"] = self.__dict__["epsilon_decay"]
+        data["epsilon_bounds"] = self.__dict__["epsilon_bounds"]
         data["action_space"] = self.__dict__["action_space"]
         data["state_space"] = self.__dict__["state_space"]
         data["checkpoint_dir"] = self.__dict__["checkpoint_dir"]
@@ -131,7 +130,7 @@ class DuellingDQLearningAgent:
         self.target_network.set_weights(self.network.get_weights())
 
     def decrement_epsilon(self, decay:float) -> None:
-        self.epsilon = max(self.epsilon - decay, self.epsilon_range[1])
+        self.epsilon = max(self.epsilon - decay, self.epsilon_bounds[1])
 
     def learn(self, batch_size: int):
 
@@ -200,11 +199,12 @@ if __name__ == "__main__":
     update_frequency = 500
     batch_size = 128
     replay_buffer_size = 12800 
-    epsilon_range = (1.0, 0.01)
+    epsilon_bounds = (1.0, 0.01)
 
     agent = DuellingDQLearningAgent(
         alpha=alpha,
         gamma=gamma,
+        epsilon_bounds=epsilon_bounds,
         update_frequency=update_frequency,
         state_space=env.observation_space,
         action_space=env.action_space,
@@ -242,6 +242,6 @@ if __name__ == "__main__":
                               data=rolling_episodic_return, step=i)
 
        
-        if rolling_episodic_return > best:
+        if rolling_episodic_return > best and agent.steps > 0:
             best = rolling_episodic_return
             agent.save()

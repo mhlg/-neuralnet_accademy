@@ -58,7 +58,6 @@ class DDQLearningAgent:
         self.steps = 0
 
         self.network = DQNetwork(
-            input_shape=(None, *self.state_space.shape),
             num_actions=action_space.n,
             num_hidden=128
         )
@@ -136,7 +135,7 @@ class DDQLearningAgent:
         self.target_network.set_weights(self.network.get_weights())
 
     def decrement_epsilon(self, decay:float) -> None:
-        self.epsilon = max(self.epsilon - decay, self.epsilon_range[1])
+        self.epsilon = max(self.epsilon - decay, self.epsilon_bounds[1])
 
     def learn(self, batch_size: int):
 
@@ -215,12 +214,12 @@ if __name__ == "__main__":
     update_frequency = 500
     batch_size = 128
     replay_buffer_size = 12800 
-    epsilon_range = (1.0, 0.01)
+    epsilon_bounds = (1.0, 0.01)
 
     agent = DDQLearningAgent(
         alpha=alpha,
         gamma=gamma,
-        epsilon_bounds=(1.0, 0.01),
+        epsilon_bounds=epsilon_bounds,
         update_frequency=update_frequency,
         state_space=env.observation_space,
         action_space=env.action_space,
@@ -257,6 +256,6 @@ if __name__ == "__main__":
                               data=rolling_episodic_return, step=i)
 
        
-        if rolling_episodic_return > best:
+        if rolling_episodic_return > best and agent.steps > 0:
             best = rolling_episodic_return
             agent.save()

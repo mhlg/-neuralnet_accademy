@@ -245,6 +245,6 @@ if __name__ == "__main__":
                               data=rolling_episodic_return, step=i)
 
        
-        if rolling_episodic_return > best:
+        if rolling_episodic_return > best and agent.steps > 0:
             best = rolling_episodic_return
             agent.save()
