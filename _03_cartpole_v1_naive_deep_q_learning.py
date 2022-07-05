@@ -146,8 +146,7 @@ if __name__ == '__main__':
                             action_space=env.action_space, 
                             checkpoint_dir=checkpoint_dir)
 
-    best_score = -math.inf
-
+    best = -math.inf
     episodic_return = []
     for i in tqdm(range(number_of_episodes)):
         done = False
@@ -167,16 +166,14 @@ if __name__ == '__main__':
             agent.decrement_epsilon(epsilon_decay)
 
         episodic_return.append(sum(rewards))
+        rolling_episodic_return = np.mean(episodic_return[-100:])
         with tensorboard_writer.as_default():
             tf.summary.scalar("episodic_return",
                               data=episodic_return[-1], step=i)
+            tf.summary.scalar("rolling_episodic_return",
+                              data=rolling_episodic_return, step=i)
 
-        if i % 100 == 0:
-            score = np.mean(episodic_return[-100:])
-            with tensorboard_writer.as_default():
-                tf.summary.scalar("average_score",
-                                  data=score, step=i)
-            print(f"Episode {i} average score {score:.2f}")
-            if score > best_score:
-                best_score = score
-                agent.save()
+       
+        if rolling_episodic_return > best:
+            best = rolling_episodic_return
+            agent.save()

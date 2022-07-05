@@ -1,3 +1,6 @@
+from __future__ import annotations
+import math
+
 import os
 import random
 from datetime import datetime
@@ -5,7 +8,6 @@ from typing import Dict
 
 import gym
 import joblib
-
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
@@ -13,14 +15,10 @@ from tqdm import tqdm
 from replay_buffer import ReplayBuffer
 
 
-
-
 class DuellingQNetwork(tf.keras.Model):
-    def __init__(self, input_shape, num_actions, num_hidden) -> None:
+    def __init__(self, num_actions, num_hidden) -> None:
         super(DuellingQNetwork, self).__init__()
-        self.dense = tf.keras.layers.Dense(
-            num_hidden, activation="relu", input_shape=input_shape
-        )
+        self.dense = tf.keras.layers.Dense(num_hidden, activation="relu")
         self.value = tf.keras.layers.Dense(1, activation=None)
         self.advantage = tf.keras.layers.Dense(num_actions, activation=None)
 
@@ -67,9 +65,8 @@ class DuellingDQLearningAgent:
         )
 
         self.target_network = DuellingQNetwork(
-            input_shape=(None, *self.state_space.shape),
             num_actions=action_space.n,
-            num_hidden=128,
+            num_hidden=128
         )
         self.target_network.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=self.alpha)
@@ -103,7 +100,7 @@ class DuellingDQLearningAgent:
         for k in iter(state):
             self.__setattr__(k, state[k])
 
-    def save(self):
+    def save(self)->None:
         path = self.checkpoint_dir
         joblib.dump(self, os.path.join(path, f"agent.pkl"))
         tf.keras.models.save_model(self.network, os.path.join(path, f"network"))
@@ -112,13 +109,14 @@ class DuellingDQLearningAgent:
         )
 
     @staticmethod
-    def load(path: str):
-        data = joblib.load(os.path.join(path, "agent.pkl"))
-        data.network = tf.keras.models.load_model(os.path.join(path, "network"))
-        data.target_network = tf.keras.models.load_model(
+    def load(path: str)->DuellingDQLearningAgent:
+        agent = joblib.load(os.path.join(path, "agent.pkl"))
+        assert isinstance(agent, DuellingDQLearningAgent)
+        agent.network = tf.keras.models.load_model(os.path.join(path, "network"))
+        agent.target_network = tf.keras.models.load_model(
             os.path.join(path, "target_network")
         )
-        return data
+        return agent
 
     def select_action(self, state) -> int:
         if random.random() < self.epsilon:
@@ -132,8 +130,8 @@ class DuellingDQLearningAgent:
     def copy_network_weights(self):
         self.target_network.set_weights(self.network.get_weights())
 
-    def decrement_epsilon(self) -> None:
-        self.epsilon = max(self.epsilon - self.epsilon_decay, 0.01)
+    def decrement_epsilon(self, decay:float) -> None:
+        self.epsilon = max(self.epsilon - decay, self.epsilon_range[1])
 
     def learn(self, batch_size: int):
 
@@ -195,17 +193,18 @@ if __name__ == "__main__":
 
     env = gym.make(env_name)
 
-    n_episodes = 10000
-    replay_buffer_size = 10000
+    number_of_episodes = 10000
     alpha = 0.0001
     gamma = 0.99
     epsilon_decay = 1e-5
-    update_frequency = 1000
+    update_frequency = 500
+    batch_size = 128
+    replay_buffer_size = 12800 
+    epsilon_range = (1.0, 0.01)
 
     agent = DuellingDQLearningAgent(
         alpha=alpha,
         gamma=gamma,
-        epsilon_decay=epsilon_decay,
         update_frequency=update_frequency,
         state_space=env.observation_space,
         action_space=env.action_space,
@@ -213,19 +212,16 @@ if __name__ == "__main__":
         replay_buffer_size=replay_buffer_size,
     )
 
-    score_history = []
+    best = -math.inf
     episodic_return = []
     batch_size = 32
-    for i in tqdm(range(n_episodes)):
+    for i in tqdm(range(number_of_episodes)):
         done = False
         state = env.reset()
-        # env.render()
         rewards = []
         while not done:
-            # select a random action.
             action = agent.select_action(state)
             next_state, reward, done, info = env.step(action=action)
-            # env.render()
             rewards.append(reward)
             agent.replay_buffer.append(state, action, reward, next_state, done)
             state = next_state
@@ -234,13 +230,18 @@ if __name__ == "__main__":
                 with tensorboard_writer.as_default():
                     tf.summary.scalar("epsilon", agent.epsilon, step=agent.steps)
                     tf.summary.scalar("loss", loss, step=agent.steps)
-                # decrement epsilon.
-                agent.decrement_epsilon()
+                agent.decrement_epsilon(epsilon_decay)
 
         episodic_return.append(sum(rewards))
+        rolling_episodic_return = np.mean(episodic_return[-100:])
+       
         with tensorboard_writer.as_default():
-            tf.summary.scalar("episodic_return", data=episodic_return[-1], step=i)
+            tf.summary.scalar("episodic_return",
+                              data=episodic_return[-1], step=i)
+            tf.summary.scalar("rolling_episodic_return",
+                              data=rolling_episodic_return, step=i)
 
-        # save checkpoint.
-        if i > 0 and i % 100 == 0:
+       
+        if rolling_episodic_return > best:
+            best = rolling_episodic_return
             agent.save()

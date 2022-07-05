@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import random
 from datetime import datetime
@@ -5,30 +7,26 @@ from typing import Dict, List, Tuple
 
 import gym
 import joblib
-
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
+import math
 
 from replay_buffer import ReplayBuffer
 
 
-class QNetwork(tf.keras.Model):
+class DQNetwork(tf.keras.Model):
     def __init__(self, num_actions, num_hidden) -> None:
-        super(QNetwork, self).__init__()
+        super(DQNetwork, self).__init__()
 
-        self.d1 = tf.keras.layers.Dense(
+        self.dense = tf.keras.layers.Dense(
             num_hidden, activation="relu"
         )
-        self.d2 = tf.keras.layers.Dense(
-            num_hidden, activation="relu"
-        )
-
+       
         self.actions = tf.keras.layers.Dense(num_actions, activation=None)
 
-    def call(self, state):
-        x = self.d1(state)
-        x = self.d2(x)
+    def call(self, states):
+        x = self.dense(states)
         x = self.actions(x)
         return x
 
@@ -59,7 +57,7 @@ class DQLearningAgent:
         self.epsilon_range = epsilon_range
         self.epsilon = self.epsilon_range[0]
 
-        self.network = QNetwork(
+        self.network = DQNetwork(
             num_actions=action_space.n,
             num_hidden=128,
         )
@@ -67,7 +65,7 @@ class DQLearningAgent:
             optimizer=tf.keras.optimizers.Adam(learning_rate=self.alpha)
         )
 
-        self.target_network = QNetwork(
+        self.target_network = DQNetwork(
             num_actions=action_space.n,
             num_hidden=128,
         )
@@ -103,7 +101,7 @@ class DQLearningAgent:
         for k in iter(state):
             self.__setattr__(k, state[k])
 
-    def save(self):
+    def save(self)->None:
         path = self.checkpoint_dir
         joblib.dump(self, os.path.join(path, f"agent.pkl"))
         tf.keras.models.save_model(
@@ -113,9 +111,9 @@ class DQLearningAgent:
         )
 
     @staticmethod
-    def load(path: str):
+    def load(path: str)->DQLearningAgent:
         agent = joblib.load(os.path.join(path, "agent.pkl"))
-        # TODO: check is agent isinstance of DQLearningAgent
+        assert isinstance(agent, DQLearningAgent)
         agent.network = tf.keras.models.load_model(
             os.path.join(path, "network"))
         agent.target_network = tf.keras.models.load_model(
@@ -202,11 +200,12 @@ if __name__ == "__main__":
     update_frequency = 500
     batch_size = 128
     replay_buffer_size = 12800 
+    epsilon_range = (1.0, 0.01)
 
     agent = DQLearningAgent(
         alpha=alpha,
         gamma=gamma,
-        epsilon_range=(1.0, 0.01),
+        epsilon_range=epsilon_range,
         update_frequency=update_frequency,
         action_space=env.action_space,
         state_space=env.observation_space,
@@ -215,6 +214,7 @@ if __name__ == "__main__":
     )
 
 
+    best = -math.inf
     episodic_return = []
     
     for i in tqdm(range(number_of_episodes)):
@@ -222,7 +222,6 @@ if __name__ == "__main__":
         state = env.reset()
         rewards = []
         while not done:
-            # select a random action.
             action = agent.select_action(state)
             next_state, reward, done, info = env.step(action=action)
             rewards.append(reward)
@@ -234,14 +233,18 @@ if __name__ == "__main__":
                     tf.summary.scalar("epsilon", 
                                       agent.epsilon, step=agent.steps)
                     tf.summary.scalar("loss", loss, step=agent.steps)
-                # decrement epsilon.
                 agent.decrement_epsilon(epsilon_decay)
 
         episodic_return.append(sum(rewards))
+        rolling_episodic_return = np.mean(episodic_return[-100:])
+       
         with tensorboard_writer.as_default():
             tf.summary.scalar("episodic_return",
                               data=episodic_return[-1], step=i)
+            tf.summary.scalar("rolling_episodic_return",
+                              data=rolling_episodic_return, step=i)
 
-        # save checkpoint.
-        if i > 0 and i % 100 == 0 and agent.steps > 0:
+       
+        if rolling_episodic_return > best:
+            best = rolling_episodic_return
             agent.save()
